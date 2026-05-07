@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador Hidráulico - Recirculación</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; display: flex; flex-direction: column; align-items: center; padding: 10px; margin: 0; }
+        .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 98%; max-width: 800px; }
+        #esquema { width: 100%; background: #ffffff; border-radius: 8px; }
+        .pipe { stroke: #d1d8e0; stroke-width: 22; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+        
+        /* FLUJO DE PUNTOS */
+        .water { 
+            stroke: #00a8ff; 
+            stroke-width: 12; 
+            fill: none; 
+            stroke-dasharray: 2, 20; 
+            stroke-linecap: round;
+            animation: dotsFlow 0.8s linear infinite; 
+            display: none; 
+            pointer-events: none; 
+        }
+        
+        @keyframes dotsFlow { 
+            from { stroke-dashoffset: 44; } 
+            to { stroke-dashoffset: 0; } 
+        }
+
+        .filter-tank { fill: #f1f2f6; stroke: #bdc3c7; stroke-width: 3; }
+        .water-filter { stroke-width: 45; opacity: 0.7; stroke-dasharray: 2, 15; }
+
+        .valve { cursor: pointer; stroke: #2c3e50; stroke-width: 2; transition: 0.2s; }
+        .v-red { fill: #ff4757; }
+        .v-green { fill: #2ed573; }
+        
+        .status { margin-top: 15px; padding: 15px; background: #2c3e50; border-radius: 8px; color: #00d4ff; font-weight: bold; text-align: center; font-size: 20px; border: 2px solid #00d4ff; text-transform: uppercase; }
+        .tag { font-size: 11px; font-weight: bold; fill: #57606f; text-transform: uppercase; display: none; }
+        .v-label { font-size: 14px; font-weight: bold; fill: white; pointer-events: none; text-anchor: middle; dominant-baseline: middle; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <svg id="esquema" viewBox="0 0 550 250">
+        <!-- ESTRUCTURA GRIS -->
+        <path class="pipe" d="M520 70 H380 V200 H40 M380 70 H40 M130 70 V200" />
+        <rect x="210" y="90" width="60" height="90" rx="8" class="filter-tank" />
+        <text x="240" y="135" font-size="10" font-weight="bold" text-anchor="middle" fill="#95a5a6">FILTRO</text>
+
+        <!-- TRAMOS AGUA (PUNTOS) -->
+        <path id="t_ent" class="water" d="M520 70 H380" /> 
+        <path id="t_baj" class="water" d="M380 70 V200" /> 
+        <path id="t_v1_post" class="water" d="M380 70 H310" /> 
+        <path id="t_v1_fil" class="water" d="M310 70 H240" /> 
+        <path id="t_v4_post" class="water" d="M380 200 H310" /> 
+        <path id="t_v4_fil" class="water" d="M310 200 H240" /> 
+        <path id="t_fil_core" class="water water-filter" d="M240 100 V180" />
+        <path id="t_fil_v2" class="water" d="M240 70 H180" /> 
+        <path id="t_v2_v3" class="water" d="M180 70 H130" /> 
+        <path id="t_fil_v5" class="water" d="M240 200 H130" /> 
+        <path id="t_v3_v5" class="water" d="M130 200 H70" /> 
+        <path id="t_v3_up" class="water" d="M130 200 V135 V70" /> 
+        <path id="t_v3_down" class="water" d="M130 70 V135 V200" /> 
+        <path id="t_calle" class="water" d="M130 70 H40" /> 
+        <path id="t_piscina" class="water" d="M70 200 H40" />
+        
+        <!-- Tramo específico Recirculación bypass de V4 a V5 sin filtro -->
+        <path id="t_v4_directo_v5" class="water" d="M310 200 H70" />
+
+        <!-- VÁLVULAS -->
+        <g onclick="toggle(1)"><circle id="v1" class="valve v-red" cx="310" cy="70" r="16" /><text x="310" y="71" class="v-label">1</text></g>
+        <g onclick="toggle(4)"><circle id="v4" class="valve v-red" cx="310" cy="200" r="16" /><text x="310" y="201" class="v-label">4</text></g>
+        <g onclick="toggle(2)"><circle id="v2" class="valve v-red" cx="180" cy="70" r="16" /><text x="180" y="71" class="v-label">2</text></g>
+        <g onclick="toggle(3)"><circle id="v3" class="valve v-red" cx="130" cy="135" r="16" /><text x="130" y="136" class="v-label">3</text></g>
+        <g onclick="toggle(5)"><circle id="v5" class="valve v-red" cx="70" cy="200" r="16" /><text x="70" y="201" class="v-label">5</text></g>
+
+        <!-- ETIQUETAS -->
+        <text x="440" y="55" class="tag" id="l_bomba" style="display:block">BOMBA --></text>
+        <text x="25" y="45" class="tag" id="l_calle">SALIDA CALLE</text>
+        <text x="25" y="185" class="tag" id="l_filtro">FILTRACIÓN</text>
+    </svg>
+    <div class="status" id="status">SISTEMA CERRADO</div>
+</div>
+
+<script>
+    let v = { 1:false, 2:false, 3:false, 4:false, 5:false };
+    function toggle(n) {
+        v[n] = !v[n];
+        document.getElementById('v'+n).className.baseVal = v[n] ? "valve v-green" : "valve v-red";
+        actualizar();
+    }
+
+    function actualizar() {
+        document.querySelectorAll('.water').forEach(el => el.style.display = 'none');
+        document.getElementById('l_calle').style.display = 'none';
+        document.getElementById('l_filtro').style.display = 'none';
+
+        let s = "SISTEMA CERRADO";
+        let show = (id) => document.getElementById(id).style.display = 'block';
+
+        // MODO RECIRCULACIÓN (4 + 5) - Bypass total de filtro
+        if (v[4] && v[5] && !v[1] && !v[2] && !v[3]) {
+            s = "MODO: RECIRCULACIÓN";
+            show('t_ent'); show('t_baj'); show('t_v4_post'); show('t_v4_directo_v5'); show('t_piscina');
+            document.getElementById('l_filtro').style.display = 'block';
+        }
+        // MODO VACIADO (1 + 2)
+        else if (v[1] && v[2] && !v[3] && !v[4] && !v[5]) {
+            s = "MODO: VACIADO";
+            show('t_ent'); show('t_v1_post'); show('t_v1_fil'); show('t_fil_v2'); show('t_v2_v3'); show('t_calle');
+            document.getElementById('l_calle').style.display = 'block';
+        }
+        // MODO ENJUAGUE (1 + 3)
+        else if (v[1] && v[3] && !v[2] && !v[4] && !v[5]) {
+            s = "MODO: ENJUAGUE";
+            show('t_ent'); show('t_v1_post'); show('t_v1_fil'); show('t_fil_core'); show('t_fil_v5'); show('t_v3_down');
+        }
+        // MODO FILTRACIÓN (1 + 5)
+        else if (v[1] && v[5] && !v[2] && !v[3] && !v[4]) {
+            s = "MODO: FILTRACIÓN";
+            show('t_ent'); show('t_v1_post'); show('t_v1_fil'); show('t_fil_core'); show('t_fil_v5'); show('t_v3_v5'); show('t_piscina');
+            document.getElementById('l_filtro').style.display = 'block';
+        } 
+        // MODO LAVADO (4 + 2)
+        else if (v[4] && v[2] && !v[1] && !v[3] && !v[5]) {
+            s = "MODO: LAVADO";
+            show('t_ent'); show('t_baj'); show('t_v4_post'); show('t_v4_fil'); show('t_fil_core'); show('t_fil_v2'); show('t_v2_v3'); show('t_calle');
+            document.getElementById('l_calle').style.display = 'block';
+        }
+        else {
+            document.getElementById('status').innerText = "ATENCIóN / Presión / ALGO NO ESTA BIEN";
+            return;
+        }
+
+        document.getElementById('status').innerText = s;
+    }
+    actualizar();
+</script>
+</body>
+</html>
